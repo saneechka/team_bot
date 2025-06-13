@@ -10,7 +10,7 @@ import (
 	"syscall"
 
 	"team_bot/config"
-	"team_bot/internal/bot"
+	"team_bot/internal/handler"
 	"team_bot/internal/repository/sqlrepo"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
@@ -42,7 +42,7 @@ func main() {
 	}
 	botAPI.Debug = cfg.Bot.Debug
 
-	telegramBot := bot.New(botAPI, authRepo, cfg)
+	authHandler := handler.NewAuthHandler(botAPI, authRepo, cfg.TelegramAdmins.Usernames)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -55,5 +55,5 @@ func main() {
 		cancel()
 	}()
 
-	telegramBot.Start(ctx)
+	authHandler.Start(ctx)
 }

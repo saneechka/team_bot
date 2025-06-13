@@ -14,30 +14,26 @@ type Config struct {
 
 	Database struct {
 		Type string `yaml:"type"`
-		Path    string `yaml:"path"`
+		Path string `yaml:"path"`
 	} `yaml:"database"`
 
-
 	TelegramAdmins struct {
-		Usernames []string `yaml:"username"` 
+		Usernames []string `yaml:"usernames"`
 	} `yaml:"admins"`
 }
 
 func LoadConfig(path string) (*Config, error) {
 	config := &Config{}
 
-	
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
 
-
 	if err := yaml.Unmarshal(data, config); err != nil {
 		return nil, err
 	}
 
-	
 	if token := os.Getenv("TELEGRAM_BOT_TOKEN"); token != "" {
 		config.Bot.Token = token
 	}

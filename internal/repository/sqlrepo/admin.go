@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"team_bot/internal/model"
+	
 )
 
 type AuthRepository struct {
@@ -97,7 +98,6 @@ func (r *AuthRepository) IsAdmin(ctx context.Context, userID int64) (bool, error
 	return isAdmin, nil
 }
 
-
 func (r *AuthRepository) SetAdminStatus(ctx context.Context, userID int64, isAdmin bool) error {
 	query := `UPDATE users SET is_admin = ? WHERE id = ?`
 	result, err := r.db.ExecContext(ctx, query, isAdmin, userID)
@@ -116,7 +116,6 @@ func (r *AuthRepository) SetAdminStatus(ctx context.Context, userID int64, isAdm
 
 	return nil
 }
-
 
 func (r *AuthRepository) GetUserByUsername(ctx context.Context, username string) (*model.User, error) {
 	query := `

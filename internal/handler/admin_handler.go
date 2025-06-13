@@ -26,6 +26,33 @@ func NewAuthHandler(bot *tgbotapi.BotAPI, repo *sqlrepo.AuthRepository, adminUse
 	}
 }
 
+// HandleUpdate централизованно обрабатывает все команды бота
+func (h *AuthHandler) HandleUpdate(ctx context.Context, update *tgbotapi.Update) error {
+	if update.Message == nil {
+		return nil
+	}
+
+	switch update.Message.Text {
+	case "/start":
+		return h.HandleStart(ctx, update)
+	case "/admin":
+		return h.HandleAdmin(ctx, update)
+	case "/link":
+		return h.HandleGenerateRegisterLink(ctx, update)
+	default:
+		return h.handleUnknownCommand(ctx, update)
+	}
+}
+
+
+func (h *AuthHandler) handleUnknownCommand(ctx context.Context, update *tgbotapi.Update) error {
+	msg := tgbotapi.NewMessage(update.Message.Chat.ID, "Неизвестная команда. Используйте /start для начала работы.")
+	if _, err := h.bot.Send(msg); err != nil {
+		return fmt.Errorf("error sending unknown command message: %v", err)
+	}
+	return nil
+}
+
 func (h *AuthHandler) CheckAdminAccess(ctx context.Context, userID int64, chatID int64) (bool, error) {
 	isAdmin, err := h.repo.IsAdmin(ctx, userID)
 	if err != nil {
@@ -44,7 +71,7 @@ func (h *AuthHandler) CheckAdminAccess(ctx context.Context, userID int64, chatID
 }
 
 func (h *AuthHandler) HandleStart(ctx context.Context, update *tgbotapi.Update) error {
-	// Проверяем, является ли пользователь администратором по username
+
 	isAdmin := false
 	username := update.Message.From.UserName
 	for _, adminUsername := range h.adminUsers {
@@ -67,13 +94,9 @@ func (h *AuthHandler) HandleStart(ctx context.Context, update *tgbotapi.Update) 
 		return fmt.Errorf("error saving user: %v", err)
 	}
 
-	keyboard := tgbotapi.NewInlineKeyboardMarkup(
-		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData("Say Hello", "hello_btn"),
-		),
-	)
+	
 
-	// Добавляем информацию о статусе администратора в приветственное сообщение
+	
 	adminStatus := ""
 	if isAdmin {
 		adminStatus = "\n✅ Вы зарегистрированы как администратор."
@@ -82,7 +105,7 @@ func (h *AuthHandler) HandleStart(ctx context.Context, update *tgbotapi.Update) 
 	msg := tgbotapi.NewMessage(update.Message.Chat.ID,
 		fmt.Sprintf("Привет, %s! Я бот для управления командой.%s", username, adminStatus))
 	msg.ReplyToMessageID = update.Message.MessageID
-	msg.ReplyMarkup = keyboard
+
 
 	if _, err := h.bot.Send(msg); err != nil {
 		return fmt.Errorf("error sending message: %v", err)
@@ -110,4 +133,50 @@ func (h *AuthHandler) HandleAdmin(ctx context.Context, update *tgbotapi.Update) 
 	}
 
 	return nil
+}
+
+func (h *AuthHandler) HandleGenerateRegisterLink(ctx context.Context, update *tgbotapi.Update) error {
+	isAdmin, err := h.repo.IsAdmin(ctx, update.Message.From.ID)
+	if err != nil {
+		return fmt.Errorf("error checking admin status: %v", err)
+	}
+
+	if !isAdmin {
+		msg := tgbotapi.NewMessage(update.Message.Chat.ID, "❌ У вас нет прав для генерации регистрационной ссылки.")
+		if _, err := h.bot.Send(msg); err != nil {
+			return fmt.Errorf("error sending access denied message: %v", err)
+		}
+		return nil
+	}
+
+	
+	msg := tgbotapi.NewMessage(update.Message.Chat.ID, "🔗 Функция генерации регистрационной ссылки будет реализована позже.")
+	if _, err := h.bot.Send(msg); err != nil {
+		return fmt.Errorf("error sending message: %v", err)
+	}
+
+	return nil
+}
+
+
+func (h *AuthHandler) Start(ctx context.Context) {
+	log.Println("Starting bot...")
+
+	u := tgbotapi.NewUpdate(0)
+	u.Timeout = 60
+
+	updates := h.bot.GetUpdatesChan(u)
+
+	for {
+		select {
+		case <-ctx.Done():
+			log.Println("Stopping bot...")
+			h.bot.StopReceivingUpdates()
+			return
+		case update := <-updates:
+			if err := h.HandleUpdate(ctx, &update); err != nil {
+				log.Printf("Error handling update: %v", err)
+			}
+		}
+	}
 }
