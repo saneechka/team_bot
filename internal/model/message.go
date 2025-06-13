@@ -22,8 +22,19 @@ type User struct {
 	IsAdmin     bool      `json:"is_admin"`
 }
 
-// IsTelegramAdmin проверяет, является ли пользователь администратором
-// на основе списка административных username
+
+type InviteToken struct {
+	ID         int64     `json:"id"`
+	Token      string    `json:"token"`
+	CreatedBy  int64     `json:"created_by"`
+	CreatedAt  time.Time `json:"created_at"`
+	ExpiresAt  time.Time `json:"expires_at"`
+	IsActive   bool      `json:"is_active"`
+	UsageCount int       `json:"usage_count"`
+	MaxUsage   int       `json:"max_usage"`
+}
+
+
 func IsTelegramAdmin(username string, adminUsernames []string) bool {
 	for _, adminUsername := range adminUsernames {
 		if username == adminUsername {

@@ -4,13 +4,12 @@ CREATE TABLE IF NOT EXISTS invite_tokens (
     token TEXT UNIQUE NOT NULL,
     created_by INTEGER NOT NULL,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    used_by INTEGER NULL,
-    used_at TIMESTAMP NULL,
+    expires_at TIMESTAMP NOT NULL,
     is_active BOOLEAN NOT NULL DEFAULT TRUE,
-    FOREIGN KEY (created_by) REFERENCES users(id),
-    FOREIGN KEY (used_by) REFERENCES users(id)
+    usage_count INTEGER NOT NULL DEFAULT 0,
+    max_usage INTEGER NOT NULL DEFAULT 20,
+    FOREIGN KEY (created_by) REFERENCES users(id)
 );
 
--- Index for faster token lookups
-CREATE INDEX IF NOT EXISTS idx_invite_tokens_token ON invite_tokens(token);
-CREATE INDEX IF NOT EXISTS idx_invite_tokens_active ON invite_tokens(is_active);
+
+
