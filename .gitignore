@@ -32,3 +32,4 @@ go.work.sum
 .vscode/
 *.yaml
 .data/
+make_test_migrate.up.sql
