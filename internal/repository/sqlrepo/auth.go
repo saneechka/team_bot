@@ -4,29 +4,19 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"time"
+
+	"team_bot/internal/model"
 )
 
 type AuthRepository struct {
 	db *sql.DB
 }
 
-
 func NewAuthRepository(db *sql.DB) *AuthRepository {
 	return &AuthRepository{db: db}
 }
 
-
-type User struct {
-	ID        int64
-	Username  string
-	ChatID    int64
-	CreatedAt time.Time
-	IsAdmin   bool
-}
-
-
-func (r *AuthRepository) SaveUser(ctx context.Context, user *User) error {
+func (r *AuthRepository) SaveUser(ctx context.Context, user *model.User) error {
 	query := `
 		INSERT INTO users (id, username, chat_id, created_at, is_admin)
 		VALUES (?, ?, ?, ?, ?)
@@ -39,7 +29,7 @@ func (r *AuthRepository) SaveUser(ctx context.Context, user *User) error {
 		user.ID,
 		user.Username,
 		user.ChatID,
-		user.CreatedAt,
+		user.CreatedTime,
 		user.IsAdmin,
 	)
 	if err != nil {
@@ -48,19 +38,18 @@ func (r *AuthRepository) SaveUser(ctx context.Context, user *User) error {
 	return nil
 }
 
-
-func (r *AuthRepository) GetUserByID(ctx context.Context, id int64) (*User, error) {
+func (r *AuthRepository) GetUserByID(ctx context.Context, id int64) (*model.User, error) {
 	query := `
 		SELECT id, username, chat_id, created_at, is_admin
 		FROM users
 		WHERE id = ?
 	`
-	var user User
+	var user model.User
 	err := r.db.QueryRowContext(ctx, query, id).Scan(
 		&user.ID,
 		&user.Username,
 		&user.ChatID,
-		&user.CreatedAt,
+		&user.CreatedTime,
 		&user.IsAdmin,
 	)
 	if err == sql.ErrNoRows {
@@ -72,19 +61,18 @@ func (r *AuthRepository) GetUserByID(ctx context.Context, id int64) (*User, erro
 	return &user, nil
 }
 
-
-func (r *AuthRepository) GetUserByChatID(ctx context.Context, chatID int64) (*User, error) {
+func (r *AuthRepository) GetUserByChatID(ctx context.Context, chatID int64) (*model.User, error) {
 	query := `
 		SELECT id, username, chat_id, created_at, is_admin
 		FROM users
 		WHERE chat_id = ?
 	`
-	var user User
+	var user model.User
 	err := r.db.QueryRowContext(ctx, query, chatID).Scan(
 		&user.ID,
 		&user.Username,
 		&user.ChatID,
-		&user.CreatedAt,
+		&user.CreatedTime,
 		&user.IsAdmin,
 	)
 	if err == sql.ErrNoRows {
@@ -107,4 +95,48 @@ func (r *AuthRepository) IsAdmin(ctx context.Context, userID int64) (bool, error
 		return false, fmt.Errorf("error checking admin status: %v", err)
 	}
 	return isAdmin, nil
-} 
+}
+
+
+func (r *AuthRepository) SetAdminStatus(ctx context.Context, userID int64, isAdmin bool) error {
+	query := `UPDATE users SET is_admin = ? WHERE id = ?`
+	result, err := r.db.ExecContext(ctx, query, isAdmin, userID)
+	if err != nil {
+		return fmt.Errorf("error setting admin status: %v", err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("error getting rows affected: %v", err)
+	}
+
+	if rowsAffected == 0 {
+		return fmt.Errorf("user with ID %d not found", userID)
+	}
+
+	return nil
+}
+
+
+func (r *AuthRepository) GetUserByUsername(ctx context.Context, username string) (*model.User, error) {
+	query := `
+		SELECT id, username, chat_id, created_at, is_admin
+		FROM users
+		WHERE username = ?
+	`
+	var user model.User
+	err := r.db.QueryRowContext(ctx, query, username).Scan(
+		&user.ID,
+		&user.Username,
+		&user.ChatID,
+		&user.CreatedTime,
+		&user.IsAdmin,
+	)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("error getting user by username: %v", err)
+	}
+	return &user, nil
+}
