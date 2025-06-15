@@ -22,7 +22,7 @@ type Config struct {
 	} `yaml:"admins"`
 }
 
-func LoadConfig(path string) (*Config, error) {
+func MustLoadConfig(path string) (*Config, error) {
 	config := &Config{}
 
 	data, err := os.ReadFile(path)

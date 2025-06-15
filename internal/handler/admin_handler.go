@@ -92,11 +92,11 @@ func (h *AuthHandler) HandleUpdate(ctx context.Context, update *tgbotapi.Update)
 		if !h.CheckUserAccess(ctx, update.Message.From.ID, update.Message.Chat.ID) {
 			return nil
 		}
-		return h.handleUnknownCommand(ctx, update)
+		return h.handleUnknownCommand(update)
 	}
 }
 
-func (h *AuthHandler) handleUnknownCommand(ctx context.Context, update *tgbotapi.Update) error {
+func (h *AuthHandler) handleUnknownCommand(update *tgbotapi.Update) error {
 	msg := tgbotapi.NewMessage(update.Message.Chat.ID, "Неизвестная команда. Используйте /help для начала работы.")
 	if _, err := h.bot.Send(msg); err != nil {
 		return fmt.Errorf("error sending unknown command message: %v", err)
@@ -156,7 +156,6 @@ func (h *AuthHandler) HandleStart(ctx context.Context, update *tgbotapi.Update) 
 	if _, err := h.bot.Send(msg); err != nil {
 		return fmt.Errorf("error sending message: %v", err)
 	}
-
 
 	h.checkAndSendPersonalInfoReminder(ctx, update.Message.From.ID, update.Message.Chat.ID)
 
@@ -227,7 +226,6 @@ func (h *AuthHandler) HandleStartWithToken(ctx context.Context, update *tgbotapi
 	if _, err := h.bot.Send(msg); err != nil {
 		return fmt.Errorf("error sending welcome message: %v", err)
 	}
-
 
 	h.checkAndSendPersonalInfoReminder(ctx, update.Message.From.ID, update.Message.Chat.ID)
 
@@ -479,7 +477,6 @@ func (h *AuthHandler) HandleHelp(ctx context.Context, update *tgbotapi.Update) e
 		return fmt.Errorf("error sending help message: %v", err)
 	}
 
-
 	h.checkAndSendPersonalInfoReminder(ctx, userID, chatID)
 
 	return nil
@@ -602,15 +599,15 @@ func (h *AuthHandler) HandleCallbackQuery(ctx context.Context, update *tgbotapi.
 
 	switch callback.Data {
 	case "setinfo_start":
-		return h.startSetInfoProcess(ctx, userID, chatID, callback.Message.MessageID)
+		return h.startSetInfoProcess(userID, chatID, callback.Message.MessageID)
 	case "setinfo_cancel":
-		return h.cancelSetInfoProcess(ctx, userID, chatID, callback.Message.MessageID)
+		return h.cancelSetInfoProcess(userID, chatID, callback.Message.MessageID)
 	}
 
 	return nil
 }
 
-func (h *AuthHandler) startSetInfoProcess(ctx context.Context, userID int64, chatID int64, messageID int) error {
+func (h *AuthHandler) startSetInfoProcess(userID, chatID int64, messageID int) error {
 	h.stateMutex.Lock()
 	h.userStates[userID] = &UserState{
 		Step:      "waiting_name",
@@ -640,7 +637,7 @@ func (h *AuthHandler) startSetInfoProcess(ctx context.Context, userID int64, cha
 	return nil
 }
 
-func (h *AuthHandler) cancelSetInfoProcess(ctx context.Context, userID int64, chatID int64, messageID int) error {
+func (h *AuthHandler) cancelSetInfoProcess(userID, chatID int64, messageID int) error {
 	h.stateMutex.Lock()
 	delete(h.userStates, userID)
 	h.stateMutex.Unlock()
@@ -718,7 +715,6 @@ func (h *AuthHandler) checkAndHandleUserInput(ctx context.Context, update *tgbot
 	return false
 }
 
-
 func (h *AuthHandler) checkAndSendPersonalInfoReminder(ctx context.Context, userID int64, chatID int64) {
 	user, err := h.repo.GetUserByID(ctx, userID)
 	if err != nil {
@@ -729,7 +725,6 @@ func (h *AuthHandler) checkAndSendPersonalInfoReminder(ctx context.Context, user
 	if user == nil {
 		return
 	}
-
 
 	if user.Name == "" || user.Surname == "" {
 		reminderMsg := tgbotapi.NewMessage(chatID,
