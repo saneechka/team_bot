@@ -19,13 +19,8 @@ func NewAuthRepository(db *sql.DB) *AuthRepository {
 func (r *AuthRepository) SaveUser(ctx context.Context, user *model.User) error {
 	query := `
 		INSERT INTO users (id, username, first_name, last_name, chat_id, created_at, is_admin)
-		VALUES (?, ?, ?, ?, ?, ?, ?)
-		ON CONFLICT(id) DO UPDATE SET
-			username = excluded.username,
-			first_name = excluded.first_name,
-			last_name = excluded.last_name,
-			chat_id = excluded.chat_id,
-			is_admin = excluded.is_admin
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		
 	`
 	_, err := r.db.ExecContext(ctx, query,
 		user.ID,
@@ -46,7 +41,7 @@ func (r *AuthRepository) GetUserByID(ctx context.Context, id int64) (*model.User
 	query := `
 		SELECT id, username, first_name, last_name, chat_id, created_at, is_admin
 		FROM users
-		WHERE id = ?
+		WHERE id = $1
 	`
 	var user model.User
 	err := r.db.QueryRowContext(ctx, query, id).Scan(
@@ -71,7 +66,7 @@ func (r *AuthRepository) GetUserByChatID(ctx context.Context, chatID int64) (*mo
 	query := `
 		SELECT id, username, first_name, last_name, chat_id, created_at, is_admin
 		FROM users
-		WHERE chat_id = ?
+		WHERE chat_id = $1
 	`
 	var user model.User
 	err := r.db.QueryRowContext(ctx, query, chatID).Scan(
@@ -93,7 +88,7 @@ func (r *AuthRepository) GetUserByChatID(ctx context.Context, chatID int64) (*mo
 }
 
 func (r *AuthRepository) IsAdmin(ctx context.Context, userID int64) (bool, error) {
-	query := `SELECT is_admin FROM users WHERE id = ?`
+	query := `SELECT is_admin FROM users WHERE id = $1`
 	var isAdmin bool
 	err := r.db.QueryRowContext(ctx, query, userID).Scan(&isAdmin)
 	if err == sql.ErrNoRows {
@@ -106,7 +101,7 @@ func (r *AuthRepository) IsAdmin(ctx context.Context, userID int64) (bool, error
 }
 
 func (r *AuthRepository) SetAdminStatus(ctx context.Context, userID int64, isAdmin bool) error {
-	query := `UPDATE users SET is_admin = ? WHERE id = ?`
+	query := `UPDATE users SET is_admin = $1 WHERE id = $2`
 	result, err := r.db.ExecContext(ctx, query, isAdmin, userID)
 	if err != nil {
 		return fmt.Errorf("error setting admin status: %v", err)
@@ -128,7 +123,7 @@ func (r *AuthRepository) GetUserByUsername(ctx context.Context, username string)
 	query := `
 		SELECT id, username, first_name, last_name, chat_id, created_at, is_admin
 		FROM users
-		WHERE username = ?
+		WHERE username = $1
 	`
 	var user model.User
 	err := r.db.QueryRowContext(ctx, query, username).Scan(
@@ -152,9 +147,10 @@ func (r *AuthRepository) GetUserByUsername(ctx context.Context, username string)
 func (r *AuthRepository) CreateInviteToken(ctx context.Context, token *model.InviteToken) error {
 	query := `
 		INSERT INTO invite_tokens (token, created_by, created_at, expires_at, is_active, usage_count, max_usage)
-		VALUES (?, ?, ?, ?, ?, ?, ?)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		RETURNING id
 	`
-	result, err := r.db.ExecContext(ctx, query,
+	err := r.db.QueryRowContext(ctx, query,
 		token.Token,
 		token.CreatedBy,
 		token.CreatedAt,
@@ -162,16 +158,10 @@ func (r *AuthRepository) CreateInviteToken(ctx context.Context, token *model.Inv
 		token.IsActive,
 		token.UsageCount,
 		token.MaxUsage,
-	)
+	).Scan(&token.ID)
 	if err != nil {
 		return fmt.Errorf("error creating invite token: %v", err)
 	}
-
-	id, err := result.LastInsertId()
-	if err != nil {
-		return fmt.Errorf("error getting last insert id: %v", err)
-	}
-	token.ID = id
 
 	return nil
 }
@@ -180,7 +170,7 @@ func (r *AuthRepository) GetActiveInviteToken(ctx context.Context) (*model.Invit
 	query := `
 		SELECT id, token, created_by, created_at, expires_at, is_active, usage_count, max_usage
 		FROM invite_tokens
-		WHERE is_active = true AND expires_at > datetime('now')
+		WHERE is_active = true AND expires_at > NOW()
 		ORDER BY created_at DESC
 		LIMIT 1
 	`
@@ -208,7 +198,7 @@ func (r *AuthRepository) GetInviteTokenByToken(ctx context.Context, tokenStr str
 	query := `
 		SELECT id, token, created_by, created_at, expires_at, is_active, usage_count, max_usage
 		FROM invite_tokens
-		WHERE token = ?
+		WHERE token = $1
 	`
 	var token model.InviteToken
 	err := r.db.QueryRowContext(ctx, query, tokenStr).Scan(
@@ -240,7 +230,7 @@ func (r *AuthRepository) DeactivateAllInviteTokens(ctx context.Context) error {
 }
 
 func (r *AuthRepository) IncrementTokenUsage(ctx context.Context, tokenID int64) error {
-	query := `UPDATE invite_tokens SET usage_count = usage_count + 1 WHERE id = ?`
+	query := `UPDATE invite_tokens SET usage_count = usage_count + 1 WHERE id = $1`
 	_, err := r.db.ExecContext(ctx, query, tokenID)
 	if err != nil {
 		return fmt.Errorf("error incrementing token usage: %v", err)
@@ -249,7 +239,7 @@ func (r *AuthRepository) IncrementTokenUsage(ctx context.Context, tokenID int64)
 }
 
 func (r *AuthRepository) UserExists(ctx context.Context, userID int64) (bool, error) {
-	query := `SELECT 1 FROM users WHERE id = ? LIMIT 1`
+	query := `SELECT 1 FROM users WHERE id = $1 LIMIT 1`
 	var exists int
 	err := r.db.QueryRowContext(ctx, query, userID).Scan(&exists)
 	if err != nil {
@@ -262,7 +252,7 @@ func (r *AuthRepository) UserExists(ctx context.Context, userID int64) (bool, er
 }
 
 func (r *AuthRepository) AddPersonalInfo(ctx context.Context, userID int64, firstName, lastName string) error {
-	query := `UPDATE users SET first_name = ?, last_name = ? WHERE id = ?`
+	query := `UPDATE users SET first_name = $1, last_name = $2 WHERE id = $3`
 	result, err := r.db.ExecContext(ctx, query, firstName, lastName, userID)
 	if err != nil {
 		return fmt.Errorf("error updating personal info: %v", err)
@@ -281,7 +271,7 @@ func (r *AuthRepository) AddPersonalInfo(ctx context.Context, userID int64, firs
 }
 
 func (r *AuthRepository) UpdatePersonalInfo(ctx context.Context, user *model.User) error {
-	query := `UPDATE users SET first_name = ?, last_name = ? WHERE id = ?`
+	query := `UPDATE users SET first_name = $1, last_name = $2 WHERE id = $3`
 	result, err := r.db.ExecContext(ctx, query, user.Name, user.Surname, user.ID)
 	if err != nil {
 		return fmt.Errorf("error updating personal info: %v", err)

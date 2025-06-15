@@ -6,7 +6,6 @@ import (
 	"log"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"syscall"
 
 	"team_bot/config"
@@ -14,7 +13,7 @@ import (
 	"team_bot/internal/repository/sqlrepo"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
-	_ "github.com/mattn/go-sqlite3"
+	_ "github.com/lib/pq"
 )
 
 func main() {
@@ -24,11 +23,7 @@ func main() {
 		log.Fatalf("Error loading config: %v", err)
 	}
 
-	if err := os.MkdirAll(filepath.Dir(cfg.Database.Path), 0755); err != nil {
-		log.Fatalf("Error creating data directory: %v", err)
-	}
-
-	db, err := sql.Open("sqlite3", cfg.Database.Path)
+	db, err := sql.Open("postgres", cfg.GetDatabaseConnectionString())
 	if err != nil {
 		log.Fatalf("Error opening database: %v", err)
 	}
