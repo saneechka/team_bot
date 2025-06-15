@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"strings"
+	"sync"
 	"time"
 
 	"team_bot/internal/model"
@@ -14,11 +15,19 @@ import (
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
 
+type UserState struct {
+	Step      string
+	TempName  string
+	MessageID int
+}
+
 type AuthHandler struct {
 	bot           *tgbotapi.BotAPI
 	repo          *sqlrepo.AuthRepository
 	adminUsers    []string
 	inviteService *service.InviteService
+	userStates    map[int64]*UserState
+	stateMutex    sync.RWMutex
 }
 
 func NewAuthHandler(bot *tgbotapi.BotAPI, repo *sqlrepo.AuthRepository, adminUsers []string) *AuthHandler {
@@ -27,10 +36,16 @@ func NewAuthHandler(bot *tgbotapi.BotAPI, repo *sqlrepo.AuthRepository, adminUse
 		repo:          repo,
 		adminUsers:    adminUsers,
 		inviteService: service.NewInviteService(repo),
+		userStates:    make(map[int64]*UserState),
 	}
 }
 
 func (h *AuthHandler) HandleUpdate(ctx context.Context, update *tgbotapi.Update) error {
+
+	if update.CallbackQuery != nil {
+		return h.HandleCallbackQuery(ctx, update)
+	}
+
 	if update.Message == nil {
 		return nil
 	}
@@ -64,7 +79,15 @@ func (h *AuthHandler) HandleUpdate(ctx context.Context, update *tgbotapi.Update)
 			return nil
 		}
 		return h.HandleInviteInfo(ctx, update)
+	case "/info":
+		return h.HandleGetPersonalInfo(ctx, update)
+	case "/setinfo":
+		return h.HandleSetPersonalInfo(ctx, update)
 	default:
+
+		if h.checkAndHandleUserInput(ctx, update) {
+			return nil
+		}
 
 		if !h.CheckUserAccess(ctx, update.Message.From.ID, update.Message.Chat.ID) {
 			return nil
@@ -134,6 +157,9 @@ func (h *AuthHandler) HandleStart(ctx context.Context, update *tgbotapi.Update) 
 		return fmt.Errorf("error sending message: %v", err)
 	}
 
+
+	h.checkAndSendPersonalInfoReminder(ctx, update.Message.From.ID, update.Message.Chat.ID)
+
 	return nil
 }
 
@@ -158,7 +184,6 @@ func (h *AuthHandler) HandleAdmin(ctx context.Context, update *tgbotapi.Update) 
 	return nil
 }
 
-
 func (h *AuthHandler) HandleStartWithToken(ctx context.Context, update *tgbotapi.Update) error {
 
 	parts := strings.Split(update.Message.Text, " ")
@@ -167,7 +192,6 @@ func (h *AuthHandler) HandleStartWithToken(ctx context.Context, update *tgbotapi
 	}
 
 	token := parts[1]
-
 
 	inviteToken, err := h.inviteService.ValidateAndUseToken(ctx, token)
 	if err != nil {
@@ -179,14 +203,13 @@ func (h *AuthHandler) HandleStartWithToken(ctx context.Context, update *tgbotapi
 		return h.HandleStart(ctx, update)
 	}
 
-
 	username := update.Message.From.UserName
 	user := &model.User{
 		ID:          update.Message.From.ID,
 		Username:    username,
 		ChatID:      update.Message.Chat.ID,
 		CreatedTime: time.Now(),
-		IsAdmin:     false, 
+		IsAdmin:     false,
 	}
 
 	if err := h.repo.SaveUser(ctx, user); err != nil {
@@ -205,9 +228,11 @@ func (h *AuthHandler) HandleStartWithToken(ctx context.Context, update *tgbotapi
 		return fmt.Errorf("error sending welcome message: %v", err)
 	}
 
+
+	h.checkAndSendPersonalInfoReminder(ctx, update.Message.From.ID, update.Message.Chat.ID)
+
 	return nil
 }
-
 
 func (h *AuthHandler) HandleCreateInvite(ctx context.Context, update *tgbotapi.Update) error {
 
@@ -215,7 +240,6 @@ func (h *AuthHandler) HandleCreateInvite(ctx context.Context, update *tgbotapi.U
 	if err != nil || !hasAccess {
 		return err
 	}
-
 
 	token, err := h.inviteService.CreateInviteLink(ctx, update.Message.From.ID, 24, 50)
 	if err != nil {
@@ -226,7 +250,6 @@ func (h *AuthHandler) HandleCreateInvite(ctx context.Context, update *tgbotapi.U
 		}
 		return fmt.Errorf("error creating invite link: %v", err)
 	}
-
 
 	botInfo, err := h.bot.GetMe()
 	if err != nil {
@@ -247,7 +270,6 @@ func (h *AuthHandler) HandleCreateInvite(ctx context.Context, update *tgbotapi.U
 		}
 		return nil
 	}
-
 
 	inviteLink := h.inviteService.FormatInviteLink(botInfo.UserName, token.Token)
 
@@ -271,14 +293,12 @@ func (h *AuthHandler) HandleCreateInvite(ctx context.Context, update *tgbotapi.U
 	return nil
 }
 
-
 func (h *AuthHandler) HandleInviteInfo(ctx context.Context, update *tgbotapi.Update) error {
 
 	hasAccess, err := h.CheckAdminAccess(ctx, update.Message.From.ID, update.Message.Chat.ID)
 	if err != nil || !hasAccess {
 		return err
 	}
-
 
 	token, err := h.inviteService.GetInviteLink(ctx)
 	if err != nil {
@@ -299,7 +319,6 @@ func (h *AuthHandler) HandleInviteInfo(ctx context.Context, update *tgbotapi.Upd
 		}
 		return nil
 	}
-
 
 	timeLeft := time.Until(token.ExpiresAt)
 	var statusText string
@@ -343,7 +362,6 @@ func (h *AuthHandler) HandleInviteInfo(ctx context.Context, update *tgbotapi.Upd
 	return nil
 }
 
-
 func (h *AuthHandler) HandleJoinTeam(ctx context.Context, update *tgbotapi.Update) error {
 	msg := tgbotapi.NewMessage(update.Message.Chat.ID,
 		"🔗 <b>Присоединение к команде</b>\n\n"+
@@ -360,7 +378,6 @@ func (h *AuthHandler) HandleJoinTeam(ctx context.Context, update *tgbotapi.Updat
 
 	return nil
 }
-
 
 func (h *AuthHandler) CheckUserAccess(ctx context.Context, userID int64, chatID int64) bool {
 
@@ -411,11 +428,9 @@ func (h *AuthHandler) Start(ctx context.Context) {
 	}
 }
 
-
 func (h *AuthHandler) HandleHelp(ctx context.Context, update *tgbotapi.Update) error {
 	userID := update.Message.From.ID
 	chatID := update.Message.Chat.ID
-	
 
 	exists, err := h.repo.UserExists(ctx, userID)
 	if err != nil {
@@ -438,7 +453,6 @@ func (h *AuthHandler) HandleHelp(ctx context.Context, update *tgbotapi.Update) e
 		}
 		return nil
 	}
-
 
 	isAdmin, err := h.repo.IsAdmin(ctx, userID)
 	if err != nil {
@@ -465,9 +479,11 @@ func (h *AuthHandler) HandleHelp(ctx context.Context, update *tgbotapi.Update) e
 		return fmt.Errorf("error sending help message: %v", err)
 	}
 
+
+	h.checkAndSendPersonalInfoReminder(ctx, userID, chatID)
+
 	return nil
 }
-
 
 func (h *AuthHandler) getGuestHelpText() string {
 	return "🤖 <b>Помощь - Гость</b>\n\n" +
@@ -481,23 +497,25 @@ func (h *AuthHandler) getGuestHelpText() string {
 		"<b>Пример:</b> <code>/start abc123def456</code>"
 }
 
-
 func (h *AuthHandler) getUserHelpText() string {
 	return "🤖 <b>Помощь - Участник команды</b>\n\n" +
 		"<b>Доступные команды:</b>\n\n" +
 		"/start - Перезапуск бота\n" +
 		"/help - Показать эту справку\n" +
-		"/admin - Проверить статус администратора\n\n" +
+		"/admin - Проверить статус администратора\n" +
+		"/info - Показать личную информацию\n" +
+		"/setinfo - Установить имя и фамилию (интерактивно)\n\n" +
 		"<b>Статус:</b> ✅ Вы зарегистрированы как участник команды"
 }
-
 
 func (h *AuthHandler) getAdminHelpText() string {
 	return "🤖 <b>Помощь - Администратор</b>\n\n" +
 		"<b>Доступные команды:</b>\n\n" +
 		"/start - Перезапуск бота\n" +
 		"/help - Показать эту справку\n" +
-		"/admin - Проверить статус администратора\n\n" +
+		"/admin - Проверить статус администратора\n" +
+		"/info - Показать личную информацию\n" +
+		"/setinfo - Установить имя и фамилию (интерактивно)\n\n" +
 		"<b>Управление приглашениями:</b>\n" +
 		"/create_invite - Создать пригласительную ссылку\n" +
 		"/invite_info - Информация о текущей ссылке\n\n" +
@@ -508,4 +526,220 @@ func (h *AuthHandler) getAdminHelpText() string {
 		"• Создание пригласительных ссылок (24 часа, до 100 использований)\n" +
 		"• Просмотр статистики использования ссылок\n" +
 		"• Управление доступом к боту"
+}
+
+func (h *AuthHandler) HandleSetPersonalInfo(ctx context.Context, update *tgbotapi.Update) error {
+	if !h.CheckUserAccess(ctx, update.Message.From.ID, update.Message.Chat.ID) {
+		msg := tgbotapi.NewMessage(update.Message.Chat.ID, "❌ Доступ запрещён. Вы должны быть зарегистрированы в системе.")
+		_, err := h.bot.Send(msg)
+		return err
+	}
+
+	msg := tgbotapi.NewMessage(update.Message.Chat.ID, "📝 Установка личной информации\n\nНажмите кнопку ниже, чтобы начать интерактивный ввод имени и фамилии:")
+	msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("✏️ Начать ввод", "setinfo_start"),
+		),
+	)
+
+	_, err := h.bot.Send(msg)
+	return err
+}
+
+func (h *AuthHandler) HandleGetPersonalInfo(ctx context.Context, update *tgbotapi.Update) error {
+
+	if !h.CheckUserAccess(ctx, update.Message.From.ID, update.Message.Chat.ID) {
+		msg := tgbotapi.NewMessage(update.Message.Chat.ID, "❌ Доступ запрещён. Вы должны быть зарегистрированы в системе.")
+		_, err := h.bot.Send(msg)
+		return err
+	}
+
+	user, err := h.repo.GetUserByID(ctx, update.Message.From.ID)
+	if err != nil {
+		msg := tgbotapi.NewMessage(update.Message.Chat.ID, "❌ Ошибка при получении информации о пользователе.")
+		_, err := h.bot.Send(msg)
+		return err
+	}
+
+	if user == nil {
+		msg := tgbotapi.NewMessage(update.Message.Chat.ID, "❌ Пользователь не найден.")
+		_, err := h.bot.Send(msg)
+		return err
+	}
+
+	var responseText string
+	if user.Name != "" || user.Surname != "" {
+		name := user.Name
+		surname := user.Surname
+		if name == "" {
+			name = "не установлено"
+		}
+		if surname == "" {
+			surname = "не установлено"
+		}
+		responseText = fmt.Sprintf("📋 Ваша личная информация:\nИмя: %s\nФамилия: %s\nUsername: @%s",
+			name, surname, user.Username)
+	} else {
+		responseText = fmt.Sprintf("📋 Ваша информация:\nИмя: не установлено\nФамилия: не установлена\nUsername: @%s\n\n💡 Для добавления имени и фамилии используйте: /setinfo Имя Фамилия",
+			user.Username)
+	}
+
+	msg := tgbotapi.NewMessage(update.Message.Chat.ID, responseText)
+	_, err = h.bot.Send(msg)
+	return err
+}
+
+func (h *AuthHandler) HandleCallbackQuery(ctx context.Context, update *tgbotapi.Update) error {
+	callback := update.CallbackQuery
+
+	answerCallback := tgbotapi.NewCallback(callback.ID, "")
+	if _, err := h.bot.Request(answerCallback); err != nil {
+		log.Printf("Error answering callback query: %v", err)
+	}
+
+	userID := callback.From.ID
+	chatID := callback.Message.Chat.ID
+
+	switch callback.Data {
+	case "setinfo_start":
+		return h.startSetInfoProcess(ctx, userID, chatID, callback.Message.MessageID)
+	case "setinfo_cancel":
+		return h.cancelSetInfoProcess(ctx, userID, chatID, callback.Message.MessageID)
+	}
+
+	return nil
+}
+
+func (h *AuthHandler) startSetInfoProcess(ctx context.Context, userID int64, chatID int64, messageID int) error {
+	h.stateMutex.Lock()
+	h.userStates[userID] = &UserState{
+		Step:      "waiting_name",
+		MessageID: messageID,
+	}
+	h.stateMutex.Unlock()
+
+	msg := tgbotapi.NewMessage(chatID, "✏️ Введите ваше имя:")
+	msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("❌ Отмена", "setinfo_cancel"),
+		),
+	)
+
+	editMsg := tgbotapi.NewEditMessageText(chatID, messageID, msg.Text)
+	keyboard := tgbotapi.NewInlineKeyboardMarkup(
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("❌ Отмена", "setinfo_cancel"),
+		),
+	)
+	editMsg.ReplyMarkup = &keyboard
+
+	if _, err := h.bot.Send(editMsg); err != nil {
+		return fmt.Errorf("error editing message: %v", err)
+	}
+
+	return nil
+}
+
+func (h *AuthHandler) cancelSetInfoProcess(ctx context.Context, userID int64, chatID int64, messageID int) error {
+	h.stateMutex.Lock()
+	delete(h.userStates, userID)
+	h.stateMutex.Unlock()
+
+	editMsg := tgbotapi.NewEditMessageText(chatID, messageID, "❌ Установка личной информации отменена.")
+	if _, err := h.bot.Send(editMsg); err != nil {
+		return fmt.Errorf("error editing message: %v", err)
+	}
+
+	return nil
+}
+
+func (h *AuthHandler) checkAndHandleUserInput(ctx context.Context, update *tgbotapi.Update) bool {
+	userID := update.Message.From.ID
+
+	h.stateMutex.RLock()
+	state, exists := h.userStates[userID]
+	h.stateMutex.RUnlock()
+
+	if !exists {
+		return false
+	}
+
+	chatID := update.Message.Chat.ID
+	text := strings.TrimSpace(update.Message.Text)
+
+	switch state.Step {
+	case "waiting_name":
+		if text == "" {
+			msg := tgbotapi.NewMessage(chatID, "❌ Имя не может быть пустым. Попробуйте еще раз:")
+			h.bot.Send(msg)
+			return true
+		}
+
+		h.stateMutex.Lock()
+		state.TempName = text
+		state.Step = "waiting_surname"
+		h.stateMutex.Unlock()
+
+		msg := tgbotapi.NewMessage(chatID, fmt.Sprintf("✅ Имя: %s\n\n✏️ Теперь введите вашу фамилию:", text))
+		msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(
+			tgbotapi.NewInlineKeyboardRow(
+				tgbotapi.NewInlineKeyboardButtonData("❌ Отмена", "setinfo_cancel"),
+			),
+		)
+		h.bot.Send(msg)
+		return true
+
+	case "waiting_surname":
+		if text == "" {
+			msg := tgbotapi.NewMessage(chatID, "❌ Фамилия не может быть пустой. Попробуйте еще раз:")
+			h.bot.Send(msg)
+			return true
+		}
+
+		h.stateMutex.Lock()
+		name := state.TempName
+		delete(h.userStates, userID)
+		h.stateMutex.Unlock()
+
+		err := h.repo.AddPersonalInfo(ctx, userID, name, text)
+		if err != nil {
+			msg := tgbotapi.NewMessage(chatID, "❌ Ошибка при сохранении информации. Попробуйте позже.")
+			h.bot.Send(msg)
+			return true
+		}
+
+		editMsg := tgbotapi.NewEditMessageText(chatID, state.MessageID,
+			fmt.Sprintf("✅ Личная информация успешно обновлена:\n\nИмя: %s\nФамилия: %s", name, text))
+		h.bot.Send(editMsg)
+
+		return true
+	}
+
+	return false
+}
+
+
+func (h *AuthHandler) checkAndSendPersonalInfoReminder(ctx context.Context, userID int64, chatID int64) {
+	user, err := h.repo.GetUserByID(ctx, userID)
+	if err != nil {
+		log.Printf("Error getting user for personal info check: %v", err)
+		return
+	}
+
+	if user == nil {
+		return
+	}
+
+
+	if user.Name == "" || user.Surname == "" {
+		reminderMsg := tgbotapi.NewMessage(chatID,
+			"📝 <b>Напоминание:</b> Рекомендуем заполнить личную информацию!\n\n"+
+				"Это поможет другим участникам команды лучше вас узнать.\n\n"+
+				"Используйте команду /setinfo для добавления имени и фамилии.")
+		reminderMsg.ParseMode = "HTML"
+
+		if _, err := h.bot.Send(reminderMsg); err != nil {
+			log.Printf("Error sending personal info reminder: %v", err)
+		}
+	}
 }

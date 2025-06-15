@@ -4,7 +4,10 @@ CREATE TABLE IF NOT EXISTS users (
     username TEXT NOT NULL,
     chat_id INTEGER NOT NULL,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    is_admin BOOLEAN NOT NULL DEFAULT FALSE
+    is_admin BOOLEAN NOT NULL DEFAULT FALSE,
+    first_name varchar(255),
+    last_name varchar(255)
+
 );
 
 

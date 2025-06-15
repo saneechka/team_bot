@@ -43,7 +43,6 @@ func (s *AuthService) CheckAdminAccess(ctx context.Context, userID int64, chatID
 	return true, nil
 }
 
-
 func (s *AuthService) IsUserAdmin(username string) bool {
 	for _, adminUsername := range s.adminUsers {
 		if username == adminUsername {
@@ -53,11 +52,12 @@ func (s *AuthService) IsUserAdmin(username string) bool {
 	return false
 }
 
-
 func (s *AuthService) CreateUser(ctx context.Context, userID int64, username string, chatID int64, isAdmin bool) (*model.User, error) {
 	user := &model.User{
 		ID:          userID,
 		Username:    username,
+		Name:   "", 
+		Surname:    "", 
 		ChatID:      chatID,
 		CreatedTime: time.Now(),
 		IsAdmin:     isAdmin,
@@ -70,7 +70,16 @@ func (s *AuthService) CreateUser(ctx context.Context, userID int64, username str
 	return user, nil
 }
 
-
 func (s *AuthService) GetUserByID(ctx context.Context, userID int64) (*model.User, error) {
 	return s.repo.GetUserByID(ctx, userID)
+}
+
+
+func (s *AuthService) UpdatePersonalInfo(ctx context.Context, userID int64, firstName, lastName string) error {
+	return s.repo.AddPersonalInfo(ctx, userID, firstName, lastName)
+}
+
+
+func (s *AuthService) UpdateUserPersonalInfo(ctx context.Context, user *model.User) error {
+	return s.repo.UpdatePersonalInfo(ctx, user)
 }

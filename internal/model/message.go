@@ -17,11 +17,12 @@ type Message struct {
 type User struct {
 	ID          int64     `json:"id"`
 	Username    string    `json:"username"`
+Name   string    `json:"name"`
+	Surname    string    `json:"surname"`
 	ChatID      int64     `json:"chat_id"`
 	CreatedTime time.Time `json:"created_time"`
 	IsAdmin     bool      `json:"is_admin"`
 }
-
 
 type InviteToken struct {
 	ID         int64     `json:"id"`
@@ -33,7 +34,6 @@ type InviteToken struct {
 	UsageCount int       `json:"usage_count"`
 	MaxUsage   int       `json:"max_usage"`
 }
-
 
 func IsTelegramAdmin(username string, adminUsernames []string) bool {
 	for _, adminUsername := range adminUsernames {

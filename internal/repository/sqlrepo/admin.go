@@ -18,16 +18,20 @@ func NewAuthRepository(db *sql.DB) *AuthRepository {
 
 func (r *AuthRepository) SaveUser(ctx context.Context, user *model.User) error {
 	query := `
-		INSERT INTO users (id, username, chat_id, created_at, is_admin)
-		VALUES (?, ?, ?, ?, ?)
+		INSERT INTO users (id, username, first_name, last_name, chat_id, created_at, is_admin)
+		VALUES (?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET
 			username = excluded.username,
+			first_name = excluded.first_name,
+			last_name = excluded.last_name,
 			chat_id = excluded.chat_id,
 			is_admin = excluded.is_admin
 	`
 	_, err := r.db.ExecContext(ctx, query,
 		user.ID,
 		user.Username,
+		user.Name,
+		user.Surname,
 		user.ChatID,
 		user.CreatedTime,
 		user.IsAdmin,
@@ -40,7 +44,7 @@ func (r *AuthRepository) SaveUser(ctx context.Context, user *model.User) error {
 
 func (r *AuthRepository) GetUserByID(ctx context.Context, id int64) (*model.User, error) {
 	query := `
-		SELECT id, username, chat_id, created_at, is_admin
+		SELECT id, username, first_name, last_name, chat_id, created_at, is_admin
 		FROM users
 		WHERE id = ?
 	`
@@ -48,6 +52,8 @@ func (r *AuthRepository) GetUserByID(ctx context.Context, id int64) (*model.User
 	err := r.db.QueryRowContext(ctx, query, id).Scan(
 		&user.ID,
 		&user.Username,
+		&user.Name,
+		&user.Surname,
 		&user.ChatID,
 		&user.CreatedTime,
 		&user.IsAdmin,
@@ -63,7 +69,7 @@ func (r *AuthRepository) GetUserByID(ctx context.Context, id int64) (*model.User
 
 func (r *AuthRepository) GetUserByChatID(ctx context.Context, chatID int64) (*model.User, error) {
 	query := `
-		SELECT id, username, chat_id, created_at, is_admin
+		SELECT id, username, first_name, last_name, chat_id, created_at, is_admin
 		FROM users
 		WHERE chat_id = ?
 	`
@@ -71,6 +77,8 @@ func (r *AuthRepository) GetUserByChatID(ctx context.Context, chatID int64) (*mo
 	err := r.db.QueryRowContext(ctx, query, chatID).Scan(
 		&user.ID,
 		&user.Username,
+		&user.Name,
+		&user.Surname,
 		&user.ChatID,
 		&user.CreatedTime,
 		&user.IsAdmin,
@@ -118,7 +126,7 @@ func (r *AuthRepository) SetAdminStatus(ctx context.Context, userID int64, isAdm
 
 func (r *AuthRepository) GetUserByUsername(ctx context.Context, username string) (*model.User, error) {
 	query := `
-		SELECT id, username, chat_id, created_at, is_admin
+		SELECT id, username, first_name, last_name, chat_id, created_at, is_admin
 		FROM users
 		WHERE username = ?
 	`
@@ -126,6 +134,8 @@ func (r *AuthRepository) GetUserByUsername(ctx context.Context, username string)
 	err := r.db.QueryRowContext(ctx, query, username).Scan(
 		&user.ID,
 		&user.Username,
+		&user.Name,
+		&user.Surname,
 		&user.ChatID,
 		&user.CreatedTime,
 		&user.IsAdmin,
@@ -138,8 +148,6 @@ func (r *AuthRepository) GetUserByUsername(ctx context.Context, username string)
 	}
 	return &user, nil
 }
-
-
 
 func (r *AuthRepository) CreateInviteToken(ctx context.Context, token *model.InviteToken) error {
 	query := `
@@ -251,4 +259,42 @@ func (r *AuthRepository) UserExists(ctx context.Context, userID int64) (bool, er
 		return false, fmt.Errorf("error checking user existence: %v", err)
 	}
 	return true, nil
+}
+
+func (r *AuthRepository) AddPersonalInfo(ctx context.Context, userID int64, firstName, lastName string) error {
+	query := `UPDATE users SET first_name = ?, last_name = ? WHERE id = ?`
+	result, err := r.db.ExecContext(ctx, query, firstName, lastName, userID)
+	if err != nil {
+		return fmt.Errorf("error updating personal info: %v", err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("error getting rows affected: %v", err)
+	}
+
+	if rowsAffected == 0 {
+		return fmt.Errorf("user with ID %d not found", userID)
+	}
+
+	return nil
+}
+
+func (r *AuthRepository) UpdatePersonalInfo(ctx context.Context, user *model.User) error {
+	query := `UPDATE users SET first_name = ?, last_name = ? WHERE id = ?`
+	result, err := r.db.ExecContext(ctx, query, user.Name, user.Surname, user.ID)
+	if err != nil {
+		return fmt.Errorf("error updating personal info: %v", err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("error getting rows affected: %v", err)
+	}
+
+	if rowsAffected == 0 {
+		return fmt.Errorf("user with ID %d not found", user.ID)
+	}
+
+	return nil
 }
